@@ -1,54 +1,158 @@
 export default async function handler(req, res) {
+
+    if (req.method !== 'GET') {
+
+        res.setHeader(
+            'Allow',
+            'GET'
+        );
+
+        return res
+            .status(405)
+            .json({
+                error:
+                    'Method not allowed'
+            });
+    }
+
+    const token =
+        process.env
+            .INSTAGRAM_ACCESS_TOKEN;
+
+    if (!token) {
+
+        return res
+            .status(500)
+            .json({
+                error:
+                    'Instagram access token is not configured on the server'
+            });
+    }
+
+    const fields = [
+        'id',
+        'caption',
+        'media_type',
+        'media_product_type',
+        'media_url',
+        'permalink',
+        'thumbnail_url',
+        'timestamp',
+        'username',
+        'children{id,media_type,media_url,thumbnail_url}'
+    ].join(',');
+
+    const firstPageUrl =
+        'https://graph.instagram.com/me/media'
+        + '?fields='
+        + encodeURIComponent(fields)
+
+        + '&limit=100'
+
+        + '&access_token='
+        + encodeURIComponent(token);
+
     try {
-        const token = process.env.INSTAGRAM_ACCESS_TOKEN;
 
-        if (!token) {
-            return res.status(500).json({
-                error: 'Instagram access token is not configured'
-            });
-        }
+        const allPosts = [];
 
-        const fields = [
-            'id',
-            'caption',
-            'media_type',
-            'media_product_type',
-            'media_url',
-            'permalink',
-            'thumbnail_url',
-            'timestamp',
-            'username',
-            'children{id,media_type,media_url,thumbnail_url}'
-        ].join(',');
+        let nextUrl =
+            firstPageUrl;
 
-        const url =
-            'https://graph.instagram.com/me/media'
-            + '?fields=' + encodeURIComponent(fields)
-            + '&limit=100'
-            + '&access_token=' + encodeURIComponent(token);
+        let pageCount = 0;
 
-        const response = await fetch(url);
+        while (
+            nextUrl &&
+            pageCount < 20
+        ) {
 
-        const data = await response.json();
+            const response =
+                await fetch(
+                    nextUrl,
+                    {
+                        headers: {
+                            Accept:
+                                'application/json'
+                        }
+                    }
+                );
 
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: 'Instagram request failed'
-            });
+            const result =
+                await response
+                    .json()
+                    .catch(
+                        () => ({})
+                    );
+
+            if (
+                !response.ok ||
+                result.error
+            ) {
+
+                console.error(
+                    'Instagram API error:',
+                    result
+                        ?.error
+                        ?.message ||
+                    response.status
+                );
+
+                return res
+                    .status(502)
+                    .json({
+                        error:
+                            'Instagram feed could not be loaded'
+                    });
+            }
+
+            if (
+                Array.isArray(
+                    result.data
+                )
+            ) {
+
+                allPosts.push(
+                    ...result.data
+                );
+            }
+
+            nextUrl =
+                result
+                    ?.paging
+                    ?.next &&
+                typeof result.paging.next
+                    === 'string'
+
+                    ? result.paging.next
+                    : '';
+
+            pageCount++;
         }
 
         res.setHeader(
             'Cache-Control',
-            's-maxage=60, stale-while-revalidate=300'
+            'public, s-maxage=300, stale-while-revalidate=600'
         );
 
-        return res.status(200).json(data);
+        return res
+            .status(200)
+            .json({
+                data:
+                    allPosts
+            });
 
     } catch (error) {
-        console.error(error);
 
-        return res.status(500).json({
-            error: 'Unable to load Instagram feed'
-        });
+        console.error(
+            'Instagram function error:',
+            error
+        );
+
+        return res
+            .status(500)
+            .json({
+                error:
+                    'Instagram feed is temporarily unavailable'
+            });
     }
 }
