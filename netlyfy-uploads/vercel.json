@@ -1,11 +1,15 @@
 {
   "rewrites": [
     {
+      "source": "/",
+      "destination": "/index.html"
+    },
+    {
       "source": "/menu",
       "destination": "/index.html"
     },
     {
-      "source": "/about",
+      "source": "/about-us",
       "destination": "/index.html"
     },
     {
