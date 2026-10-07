@@ -6262,6 +6262,22 @@
         footer .footer-facebook { background: #1877f2; }
         footer a.footer-social-icon:hover { opacity: .85; }
         footer a.footer-social-icon:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+
+/* One scrolling controller; hide scrollbar without disabling swipe. */
+#home-instagram-feed .ig-feed-grid {
+ scrollbar-width: none !important;
+ -ms-overflow-style: none;
+ scroll-snap-type: none !important;
+ overflow-x: auto !important;
+ touch-action: pan-x pan-y;
+}
+#home-instagram-feed .ig-feed-grid::-webkit-scrollbar { display: none; width: 0; height: 0; }
+#home-instagram-feed .ig-marquee-track {
+ animation: none !important;
+ will-change: transform;
+}
+#home-instagram-feed .ig-feed-card { scroll-snap-align: none !important; }
+
 </style>
 </head>
 
@@ -8373,14 +8389,14 @@
                         return '<a class="ig-feed-card" href="' + url + '" target="_blank" rel="noopener" aria-label="' + caption + '">'
                             + '<video src="' + videoSrc + '"'
                             + (poster ? ' poster="' + poster + '"' : '')
-                            + ' autoplay muted loop playsinline preload="metadata"></video>'
+                            + ' muted loop playsinline preload="none"></video>'
                             + '<span class="ig-feed-type">' + (productType === 'REELS' ? 'REEL' : 'VIDEO') + '</span>'
                             + '</a>';
                     }
 
                     if (poster) {
                         return '<a class="ig-feed-card" href="' + url + '" target="_blank" rel="noopener" aria-label="' + caption + '">'
-                            + '<img src="' + poster + '" alt="' + caption + '" loading="eager" decoding="async">'
+                            + '<img src="' + poster + '" alt="' + caption + '" loading="lazy" decoding="async">'
                             + '<span class="ig-feed-type">VIDEO</span>'
                             + '</a>';
                     }
@@ -8392,7 +8408,7 @@
                 if (!imageSrc) return '';
 
                 return '<a class="ig-feed-card" href="' + url + '" target="_blank" rel="noopener" aria-label="' + caption + '">'
-                    + '<img src="' + imageSrc + '" alt="' + caption + '" loading="eager" decoding="async">'
+                    + '<img src="' + imageSrc + '" alt="' + caption + '" loading="lazy" decoding="async">'
                     + '<span class="ig-feed-type">' + (type === 'CAROUSEL_ALBUM' ? 'ALBUM' : 'POST') + '</span>'
                     + '</a>';
             }
@@ -8519,30 +8535,6 @@
             });
 
 
-            // Pause the CSS marquee during manual interaction.
-            feed.addEventListener('pointerdown', function () {
-                feed.classList.add('is-user-paused');
-            });
-
-            window.addEventListener('pointerup', function () {
-                const hoveringCard = document.querySelector('#home-instagram-feed .ig-feed-card:hover');
-                if (!hoveringCard) {
-                    feed.classList.remove('is-user-paused');
-                }
-            });
-
-            feed.addEventListener('mouseleave', function () {
-                feed.classList.remove('is-user-paused');
-            });
-
-            feed.addEventListener('touchstart', function () {
-                feed.classList.add('is-user-paused');
-            }, { passive: true });
-
-            feed.addEventListener('touchend', function () {
-                feed.classList.remove('is-user-paused');
-            }, { passive: true });
-
             const hadCachedInstagramFeed = loadInstagramCache();
 
             // Only show the loading message when there is truly nothing cached yet.
@@ -8568,98 +8560,118 @@
                 }
             }, 12000);
 
-            // Horizontal Instagram auto-scroll.
-            // Moves continuously, pauses on hover/touch/manual interaction,
-            // and resumes after the pointer leaves.
-            let igAutoScrollPaused = false;
-            let igAutoScrollDirection = 1;
-            let igAutoScrollRaf = 0;
-            let igLastFrame = 0;
-            const IG_SCROLL_SPEED = 58; // pixels per second - clearly visible movement
-
-            function instagramAutoScrollFrame(now) {
-                if (!igLastFrame) igLastFrame = now;
-                const delta = Math.min((now - igLastFrame) / 1000, 0.05);
-                igLastFrame = now;
-
-                if (!igAutoScrollPaused && feed.scrollWidth > feed.clientWidth) {
-                    const moveBy = Math.max(0.6, IG_SCROLL_SPEED * delta);
-                    feed.scrollLeft += igAutoScrollDirection * moveBy;
-
-                    const maxScroll = Math.max(0, feed.scrollWidth - feed.clientWidth);
-
-                    if (feed.scrollLeft >= maxScroll - 2) {
-                        feed.scrollLeft = maxScroll;
-                        igAutoScrollDirection = -1;
-                    } else if (feed.scrollLeft <= 2 && igAutoScrollDirection < 0) {
-                        feed.scrollLeft = 0;
-                        igAutoScrollDirection = 1;
-                    }
-                }
-
-                // CSS marquee handles automatic movement.
-            }
-
-            feed.addEventListener('mouseenter', function () {
-                igAutoScrollPaused = true;
-            });
-
-            feed.addEventListener('mouseleave', function () {
-                igAutoScrollPaused = false;
-                igLastFrame = performance.now();
-            });
-
-            feed.addEventListener('pointerdown', function () {
-                igAutoScrollPaused = true;
-            });
-
-            feed.addEventListener('pointerup', function () {
-                if (!feed.matches(':hover')) igAutoScrollPaused = false;
-                igLastFrame = performance.now();
-            });
-
-            feed.addEventListener('touchstart', function () {
-                igAutoScrollPaused = true;
-            }, { passive: true });
-
-            feed.addEventListener('touchend', function () {
-                igAutoScrollPaused = false;
-                igLastFrame = performance.now();
-            }, { passive: true });
-
-
-            // Desktop mouse drag scrolling while auto-animation is paused.
-            let igDragging = false;
-            let igDragStartX = 0;
-            let igDragStartScroll = 0;
-
-            feed.addEventListener('mousedown', function (event) {
-                igDragging = true;
-                igAutoScrollPaused = true;
-                igDragStartX = event.pageX;
-                igDragStartScroll = feed.scrollLeft;
-                feed.style.cursor = 'grabbing';
-                event.preventDefault();
-            });
-
-            window.addEventListener('mousemove', function (event) {
-                if (!igDragging) return;
-                const distance = event.pageX - igDragStartX;
-                feed.scrollLeft = igDragStartScroll - distance;
-            });
-
-            window.addEventListener('mouseup', function () {
-                if (!igDragging) return;
-                igDragging = false;
+            // Native scrolling handles swipe; one loop handles automatic movement.
+            let interacting = false;
+            let mouseHover = false;
+            let resumeAt = 0;
+            let lastFrame = 0;
+            let cycleWidth = 0;
+            let marqueePosition = 0;
+            let marqueeTrack = null;
+            let feedVisible = false;
+            let dragging = false;
+            let dragX = 0;
+            let dragScroll = 0;
+            let dragged = false;
+            const speed = 42;
+            function releaseInteraction() {
+                interacting = false;
+                dragging = false;
+                resumeAt = performance.now() + 900;
                 feed.style.cursor = 'grab';
-                const hoveringCard = document.querySelector('#home-instagram-feed .ig-feed-card:hover');
-                if (!hoveringCard) {
-                    igAutoScrollPaused = false;
-                    igLastFrame = performance.now();
-                }
+            }
+            feed.addEventListener('pointerenter', function (event) {
+                if (event.pointerType === 'mouse') mouseHover = true;
             });
+            feed.addEventListener('pointerleave', function (event) {
+                if (event.pointerType === 'mouse') mouseHover = false;
+            });
+            feed.addEventListener('pointerdown', function (event) {
+                interacting = true;
+                dragged = false;
+                if (event.pointerType === 'mouse' && event.button === 0) {
+                    dragging = true;
+                    dragX = event.clientX;
+                    dragScroll = feed.scrollLeft;
+                }
+            }, { passive: true });
+            window.addEventListener('pointermove', function (event) {
+                if (!dragging || event.pointerType !== 'mouse') return;
+                const dx = event.clientX - dragX;
+                if (Math.abs(dx) > 5) {
+                    dragged = true;
+                    feed.scrollLeft = dragScroll - dx;
+                    feed.style.cursor = 'grabbing';
+                    event.preventDefault();
+                }
+            }, { passive: false });
+            window.addEventListener('pointerup', releaseInteraction, { passive: true });
+            window.addEventListener('pointercancel', releaseInteraction, { passive: true });
+            window.addEventListener('blur', function () {
+                mouseHover = false;
+                releaseInteraction();
+            });
+            feed.addEventListener('touchend', releaseInteraction, { passive: true });
+            feed.addEventListener('touchcancel', releaseInteraction, { passive: true });
+            feed.addEventListener('wheel', function () {
+                resumeAt = performance.now() + 1200;
+            }, { passive: true });
+            feed.addEventListener('click', function (event) {
+                if (dragged) {
+                    event.preventDefault();
+                    dragged = false;
+                }
+            }, true);
+            feed.addEventListener('dragstart', function (event) { event.preventDefault(); });
 
-            // CSS marquee handles automatic movement.
+            const visibilityObserver = new IntersectionObserver(function (entries) {
+                feedVisible = entries[0].isIntersecting;
+            });
+            visibilityObserver.observe(feed);
+            const videoObserver = new IntersectionObserver(function (entries) {
+                entries.forEach(function (entry) {
+                    const video = entry.target;
+                    if (entry.isIntersecting && !document.hidden) {
+                        const result = video.play();
+                        if (result) result.catch(function () {});
+                    } else video.pause();
+                });
+            }, { threshold: 0.2 });
+            function measureMarquee() {
+                const track = feed.querySelector('.ig-marquee-track');
+                if (track !== marqueeTrack) {
+                    marqueeTrack = track;
+                    marqueePosition = 0;
+                }
+                cycleWidth = track && track.children.length > 1
+                    ? track.children[track.children.length / 2].offsetLeft - track.children[0].offsetLeft : 0;
+                videoObserver.disconnect();
+                feed.querySelectorAll('video').forEach(function (video) { videoObserver.observe(video); });
+            }
+            new ResizeObserver(measureMarquee).observe(feed);
+            new MutationObserver(measureMarquee).observe(feed, { childList: true });
+            measureMarquee();
+            document.addEventListener('visibilitychange', function () {
+                lastFrame = 0;
+                if (document.hidden) feed.querySelectorAll('video').forEach(function (video) { video.pause(); });
+                else { releaseInteraction(); measureMarquee(); }
+            });
+            function marqueeFrame(now) {
+                const dt = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0;
+                lastFrame = now;
+                if (feedVisible && !document.hidden && !interacting && !mouseHover && now >= resumeAt && cycleWidth > 0) {
+                    // Keep fractional positions: scrolling by subpixel scrollLeft
+                    // increments can be rounded away on mobile browsers.
+                    if (feed.scrollLeft) {
+                        marqueePosition += feed.scrollLeft;
+                        feed.scrollLeft = 0;
+                    }
+                    marqueePosition = ((marqueePosition + speed * dt) % cycleWidth + cycleWidth) % cycleWidth;
+                    if (marqueeTrack) marqueeTrack.style.transform = 'translate3d(' + (-marqueePosition) + 'px, 0, 0)';
+                }
+                requestAnimationFrame(marqueeFrame);
+            }
+            requestAnimationFrame(marqueeFrame);
 
         })();
         
