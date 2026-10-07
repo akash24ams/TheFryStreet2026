@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>The Fry Street - Website Preview</title>
+    <title>The Fry Street | Crispy food for every street mood.</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Overlock:wght@400;700;900&display=swap" rel="stylesheet">
@@ -6269,7 +6269,7 @@
  -ms-overflow-style: none;
  scroll-snap-type: none !important;
  overflow-x: auto !important;
- touch-action: pan-x pan-y;
+ touch-action: pan-y;
 }
 #home-instagram-feed .ig-feed-grid::-webkit-scrollbar { display: none; width: 0; height: 0; }
 #home-instagram-feed .ig-marquee-track {
@@ -6647,6 +6647,23 @@
             display: block !important;
         }
 
+
+/* Instagram interaction viewport: custom drag handles both directions. */
+#home-instagram-feed .ig-feed-grid {
+ overflow: hidden !important;
+ touch-action: pan-y pinch-zoom;
+ scroll-snap-type: none !important;
+ scrollbar-width: none !important;
+ user-select: none;
+ -webkit-user-select: none;
+}
+#home-instagram-feed .ig-feed-card,
+#home-instagram-feed .ig-feed-card img,
+#home-instagram-feed .ig-feed-card video { -webkit-user-drag: none; }
+#home-instagram-feed .ig-marquee-track {
+ animation: none !important;
+ will-change: transform;
+}
 </style>
                     <g>
                         <path class="st0" d="M495.957,390.227H16.044C7.185,390.227,0,397.401,0,406.249v26.685c0,54.749,114.619,47.804,256,47.804
@@ -8084,7 +8101,7 @@
             const smooth = options.smooth === true;
 
             const routeTitles = {
-                home: 'The Fry Street | Home',
+                home: 'The Fry Street | Crispy food for every street mood.',
                 menu: 'The Fry Street | Menu',
                 about: 'The Fry Street | About Us',
                 contact: 'The Fry Street | Contact'
@@ -8563,6 +8580,10 @@
             // Native scrolling handles swipe; one loop handles automatic movement.
             let interacting = false;
             let mouseHover = false;
+            let touchPaused = false;
+            let touchMoved = false;
+            let touchHorizontal = false;
+            let suppressTouchClickUntil = 0;
             let resumeAt = 0;
             let lastFrame = 0;
             let cycleWidth = 0;
@@ -8572,11 +8593,14 @@
             let dragging = false;
             let dragX = 0;
             let dragScroll = 0;
+            let dragY = 0;
+            let activePointer = null;
             let dragged = false;
-            const speed = 42;
+            const speed = 54;
             function releaseInteraction() {
                 interacting = false;
                 dragging = false;
+                activePointer = null;
                 resumeAt = performance.now() + 900;
                 feed.style.cursor = 'grab';
             }
@@ -8586,38 +8610,73 @@
             feed.addEventListener('pointerleave', function (event) {
                 if (event.pointerType === 'mouse') mouseHover = false;
             });
+            function drawMarquee(position) {
+                if (!cycleWidth || !marqueeTrack) return;
+                marqueePosition = ((position % cycleWidth) + cycleWidth) % cycleWidth;
+                feed.scrollLeft = 0;
+                marqueeTrack.style.transform = 'translate3d(' + (-marqueePosition) + 'px, 0, 0)';
+            }
+            // Unified pointer controls for mouse, touchscreen and pen.
             feed.addEventListener('pointerdown', function (event) {
+                if (event.pointerType === 'mouse' && event.button !== 0) return;
+                if (activePointer !== null) return;
                 interacting = true;
                 dragged = false;
-                if (event.pointerType === 'mouse' && event.button === 0) {
-                    dragging = true;
-                    dragX = event.clientX;
-                    dragScroll = feed.scrollLeft;
-                }
+                dragging = true;
+                activePointer = event.pointerId;
+                dragX = event.clientX;
+                dragY = event.clientY;
+                dragScroll = marqueePosition;
+                try { feed.setPointerCapture(event.pointerId); } catch (_) {}
             }, { passive: true });
-            window.addEventListener('pointermove', function (event) {
-                if (!dragging || event.pointerType !== 'mouse') return;
+            feed.addEventListener('pointermove', function (event) {
+                if (event.pointerType === 'mouse') mouseHover = true;
+                if (!dragging || event.pointerId !== activePointer) return;
                 const dx = event.clientX - dragX;
-                if (Math.abs(dx) > 5) {
+                const dy = event.clientY - dragY;
+                if (!dragged && event.pointerType !== 'mouse' && Math.abs(dy) > Math.abs(dx)) return;
+                if (dragged || Math.abs(dx) > 5) {
                     dragged = true;
-                    feed.scrollLeft = dragScroll - dx;
+                    drawMarquee(dragScroll - dx);
                     feed.style.cursor = 'grabbing';
-                    event.preventDefault();
+                    if (event.cancelable) event.preventDefault();
                 }
             }, { passive: false });
-            window.addEventListener('pointerup', releaseInteraction, { passive: true });
-            window.addEventListener('pointercancel', releaseInteraction, { passive: true });
+            function endPointer(event, cancelled) {
+                if (event.pointerId !== activePointer) return;
+                if (event.pointerType !== 'mouse') {
+                    if (!cancelled && !dragged && Math.abs(event.clientY - dragY) <= 6) touchPaused = !touchPaused;
+                    else if (dragged) touchPaused = false;
+                    suppressTouchClickUntil = performance.now() + 700;
+                }
+                const pointer = activePointer;
+                releaseInteraction();
+                try { if (feed.hasPointerCapture(pointer)) feed.releasePointerCapture(pointer); } catch (_) {}
+                if (event.pointerType === 'mouse') {
+                    const box = feed.getBoundingClientRect();
+                    mouseHover = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+                }
+            }
+            feed.addEventListener('pointerup', function (event) { endPointer(event, false); });
+            feed.addEventListener('pointercancel', function (event) { endPointer(event, true); });
+            feed.addEventListener('lostpointercapture', function (event) {
+                if (event.pointerId === activePointer) releaseInteraction();
+            });
             window.addEventListener('blur', function () {
                 mouseHover = false;
                 releaseInteraction();
             });
-            feed.addEventListener('touchend', releaseInteraction, { passive: true });
-            feed.addEventListener('touchcancel', releaseInteraction, { passive: true });
-            feed.addEventListener('wheel', function () {
-                resumeAt = performance.now() + 1200;
-            }, { passive: true });
+            feed.addEventListener('wheel', function (event) {
+                // Vertical wheel scroll keeps moving the page; horizontal input moves posts.
+                const delta = event.shiftKey ? event.deltaY : event.deltaX;
+                if (!delta) return;
+                const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? feed.clientWidth : 1;
+                drawMarquee(marqueePosition + delta * scale);
+                resumeAt = performance.now() + 900;
+                if (event.cancelable) event.preventDefault();
+            }, { passive: false });
             feed.addEventListener('click', function (event) {
-                if (dragged) {
+                if (dragged || performance.now() < suppressTouchClickUntil) {
                     event.preventDefault();
                     dragged = false;
                 }
@@ -8659,7 +8718,7 @@
             function marqueeFrame(now) {
                 const dt = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0;
                 lastFrame = now;
-                if (feedVisible && !document.hidden && !interacting && !mouseHover && now >= resumeAt && cycleWidth > 0) {
+                if (feedVisible && !document.hidden && !interacting && !mouseHover && !touchPaused && now >= resumeAt && cycleWidth > 0) {
                     // Keep fractional positions: scrolling by subpixel scrollLeft
                     // increments can be rounded away on mobile browsers.
                     if (feed.scrollLeft) {
