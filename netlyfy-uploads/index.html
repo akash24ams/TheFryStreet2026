@@ -8295,6 +8295,8 @@
 
             if (!feed || !loadMoreRow || !loadMoreBtn) return;
 
+            const INSTAGRAM_ACCESS_TOKEN = 'IGAAkSSNzNbnFBZAFowcVBMbUJFanI0YzNvYk9XV1JPZAjNSYnMzS3g3VURzd2VsWkMzUEJEV1pacm5sOVctalh5cEV2bzJpdF9wZATF0b3NrZAW1sSDFHNlNDRjNMdk1ISS1kQ1hiN3c0bTdmZAmd1RS1FZAno2SGdUcUFnRFRDYzNFbwZDZD';
+
             const INITIAL_COUNT = 100;
             const VIEW_MORE_COUNT = 100;
             const AUTO_REFRESH_MS = 10 * 60 * 1000;
@@ -8306,8 +8308,24 @@
             const INSTAGRAM_CACHE_KEY = 'theFryStreetInstagramFeedV2';
             const INSTAGRAM_CACHE_MAX_AGE = 6 * 60 * 60 * 1000; // 6 hours
 
-            // The server reads the secret from Vercel environment variables.
-            const firstPageUrl = '/api/instagram';
+            const fields = [
+                'id',
+                'caption',
+                'media_type',
+                'media_product_type',
+                'media_url',
+                'permalink',
+                'thumbnail_url',
+                'timestamp',
+                'username',
+                'children{id,media_type,media_url,thumbnail_url}'
+            ].join(',');
+
+            const firstPageUrl =
+                'https://graph.instagram.com/me/media'
+                + '?fields=' + encodeURIComponent(fields)
+                + '&limit=30'
+                + '&access_token=' + encodeURIComponent(INSTAGRAM_ACCESS_TOKEN);
 
             function esc(value) {
                 return String(value || '')
