@@ -7809,7 +7809,7 @@
             const AUTO_REFRESH_MS = 10 * 60 * 1000;
             const INSTAGRAM_CACHE_KEY = 'theFryStreetInstagramFeedV6';
             const INSTAGRAM_CACHE_MAX_AGE = 5 * 60 * 1000;
-            const firstPageUrl = '/api/instagram';
+            const firstPageUrl = '/api/feed';
             let allPosts = [];
             let visibleCount = INITIAL_COUNT;
             let loading = false;
@@ -7943,7 +7943,7 @@
                 if (!response.ok || result.error) {
                     // A platform-level 404 means the API URL is not reaching the function.
                     const message = response.status === 404
-                        ? 'Instagram feed endpoint not found (404). Check the Vercel deployment domain and /api/instagram route.'
+                        ? 'Instagram feed endpoint not found (404). Check the Vercel deployment domain and /api/feed route.'
                         : (typeof result.error === 'string' ? result.error :
                           (result.error?.message || ('Instagram feed API returned HTTP ' + response.status)));
                     throw new Error(message);
