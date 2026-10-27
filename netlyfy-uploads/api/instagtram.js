@@ -1,528 +1,172 @@
-(function loadHomeInstagramFeed() {
-    const feed =
-        document.getElementById(
-            'instagramLatestGrid'
-        );
 
-    const loadMoreRow =
-        document.getElementById(
-            'instagramLoadMoreRow'
-        );
+// The Fry Street — Instagram Feed API
+// Vercel Environment Variable: INSTAGRAM_ACCESS_TOKEN
+// Optional for Facebook Login: INSTAGRAM_USER_ID
 
-    const loadMoreBtn =
-        document.getElementById(
-            'instagramLoadMoreBtn'
-        );
+module.exports = async function handler(req, res) {
+  res.setHeader(
+    'Cache-Control',
+    'public, s-maxage=300, stale-while-revalidate=300'
+  );
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
-    if (
-        !feed ||
-        !loadMoreRow ||
-        !loadMoreBtn
-    ) {
-        return;
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET');
+    return res.status(405).json({
+      error: 'Method not allowed'
+    });
+  }
+
+  const token = String(
+    process.env.INSTAGRAM_ACCESS_TOKEN || ''
+  ).trim();
+
+  const userId = String(
+    process.env.INSTAGRAM_USER_ID || ''
+  ).trim();
+
+  // Check whether the function and token are configured
+  if (String(req.query?.health || '') === '1') {
+    res.setHeader('Cache-Control', 'no-store');
+
+    return res.status(200).json({
+      status: 'ok',
+      function: 'instagram',
+      token_configured: Boolean(token),
+      mode: userId ? 'facebook-login' : 'instagram-login'
+    });
+  }
+
+  if (!token) {
+    res.setHeader('Cache-Control', 'no-store');
+
+    return res.status(503).json({
+      error: 'Instagram token is not configured in Vercel Production.'
+    });
+  }
+
+  const base = userId
+    ? `https://graph.facebook.com/v25.0/${encodeURIComponent(userId)}/media`
+    : 'https://graph.instagram.com/me/media';
+
+  const url = new URL(base);
+
+  url.searchParams.set(
+    'fields',
+    'id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,timestamp,children{id,media_type,media_url,thumbnail_url}'
+  );
+
+  url.searchParams.set('limit', '50');
+
+  const fields = [
+    'id',
+    'caption',
+    'media_type',
+    'media_product_type',
+    'media_url',
+    'permalink',
+    'thumbnail_url',
+    'timestamp'
+  ];
+
+  function sanitize(media) {
+    const result = {};
+
+    for (const key of fields) {
+      if (
+        typeof media?.[key] === 'string' &&
+        !media[key].includes(token)
+      ) {
+        result[key] = media[key];
+      }
     }
 
-    const INSTAGRAM_API_URL =
-        '/api/instagram';
-
-    const AUTO_REFRESH_MS =
-        10 * 60 * 1000;
-
-    const INSTAGRAM_CACHE_KEY =
-        'theFryStreetInstagramFeedV3';
-
-    let allPosts = [];
-
-    function esc(value) {
-        return String(value || '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
+    if (Array.isArray(media?.children?.data)) {
+      result.children = {
+        data: media.children.data.map(sanitize)
+      };
     }
 
-    function timestampMs(post) {
-        if (
-            !post ||
-            !post.timestamp
-        ) {
-            return 0;
-        }
+    return result;
+  }
 
-        const value =
-            Date.parse(
-                post.timestamp
-            );
+  try {
+    const posts = [];
+    const cursors = new Set();
+    let hasMore = false;
 
-        return Number.isFinite(value)
-            ? value
-            : 0;
+    for (let page = 0; page < 3; page++) {
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || payload.error) {
+        console.error('Instagram upstream failure', {
+          status: response.status,
+          code: payload.error?.code,
+          subcode: payload.error?.error_subcode
+        });
+
+        res.setHeader('Cache-Control', 'no-store');
+
+        return res.status(502).json({
+          error: 'Instagram API request failed.',
+          upstream_status: response.status,
+          code: payload.error?.code ?? null
+        });
+      }
+
+      if (!Array.isArray(payload.data)) {
+        res.setHeader('Cache-Control', 'no-store');
+
+        return res.status(502).json({
+          error: 'Instagram returned an unexpected response.'
+        });
+      }
+
+      posts.push(...payload.data);
+
+      const after = payload.paging?.cursors?.after;
+
+      hasMore = Boolean(
+        payload.paging?.next &&
+        typeof after === 'string' &&
+        after
+      );
+
+      if (!hasMore || cursors.has(after)) {
+        break;
+      }
+
+      cursors.add(after);
+      url.searchParams.set('after', after);
     }
 
-    function mediaPreview(post) {
-        if (!post) return '';
-
-        const type =
-            String(
-                post.media_type ||
-                ''
-            ).toUpperCase();
-
-        if (
-            type ===
-            'CAROUSEL_ALBUM'
-        ) {
-            const children =
-                post.children &&
-                Array.isArray(
-                    post.children.data
-                )
-                    ? post.children.data
-                    : [];
-
-            const first =
-                children[0] || {};
-
-            return (
-                first.thumbnail_url ||
-                first.media_url ||
-                post.thumbnail_url ||
-                post.media_url ||
-                ''
-            );
-        }
-
-        return (
-            post.thumbnail_url ||
-            post.media_url ||
-            ''
-        );
-    }
-
-    function normalizeAndSort(items) {
-        const unique =
-            new Map();
-
-        (
-            Array.isArray(items)
-                ? items
-                : []
-        ).forEach(
-            function (post) {
-                if (
-                    post &&
-                    post.id
-                ) {
-                    unique.set(
-                        post.id,
-                        post
-                    );
-                }
-            }
-        );
-
-        return Array
-            .from(
-                unique.values()
-            )
-            .filter(
-                function (post) {
-                    return !!(
-                        post &&
-                        post.id &&
-                        mediaPreview(post)
-                    );
-                }
-            )
-            .sort(
-                function (a, b) {
-                    return (
-                        timestampMs(b) -
-                        timestampMs(a)
-                    );
-                }
-            );
-    }
-
-    function cardHtml(post) {
-        const type =
-            String(
-                post.media_type ||
-                'IMAGE'
-            ).toUpperCase();
-
-        const productType =
-            String(
-                post.media_product_type ||
-                ''
-            ).toUpperCase();
-
-        const url =
-            esc(
-                post.permalink ||
-                'https://www.instagram.com/thefrystreet/'
-            );
-
-        const caption =
-            esc(
-                post.caption ||
-                'The Fry Street Instagram post'
-            );
-
-        if (
-            type === 'VIDEO'
-        ) {
-            const videoSrc =
-                esc(
-                    post.media_url ||
-                    ''
-                );
-
-            const poster =
-                esc(
-                    post.thumbnail_url ||
-                    ''
-                );
-
-            if (videoSrc) {
-                return `
-                    <a
-                        class="ig-feed-card"
-                        href="${url}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label="${caption}"
-                    >
-                        <video
-                            src="${videoSrc}"
-                            ${poster ? `poster="${poster}"` : ''}
-                            autoplay
-                            muted
-                            loop
-                            playsinline
-                            preload="metadata"
-                        ></video>
-
-                        <span class="ig-feed-type">
-                            ${
-                                productType === 'REELS'
-                                    ? 'REEL'
-                                    : 'VIDEO'
-                            }
-                        </span>
-                    </a>
-                `;
-            }
-        }
-
-        const imageSrc =
-            esc(
-                mediaPreview(post)
-            );
-
-        if (!imageSrc) {
-            return '';
-        }
-
-        return `
-            <a
-                class="ig-feed-card"
-                href="${url}"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="${caption}"
-            >
-                <img
-                    src="${imageSrc}"
-                    alt="${caption}"
-                    loading="lazy"
-                    decoding="async"
-                >
-
-                <span class="ig-feed-type">
-                    ${
-                        type ===
-                        'CAROUSEL_ALBUM'
-                            ? 'ALBUM'
-                            : 'POST'
-                    }
-                </span>
-            </a>
-        `;
-    }
-
-    function renderVisible() {
-        if (!allPosts.length) {
-            feed.innerHTML = `
-                <div class="ig-feed-status">
-                    No Instagram posts are available right now.
-                </div>
-            `;
-
-            loadMoreRow.style.display =
-                'none';
-
-            return;
-        }
-
-        const doubledPosts = [
-            ...allPosts,
-            ...allPosts
-        ];
-
-        feed.innerHTML = `
-            <div class="ig-marquee-track">
-                ${
-                    doubledPosts
-                        .map(cardHtml)
-                        .join('')
-                }
-            </div>
-        `;
-
-        loadMoreRow.style.display =
-            'none';
-    }
-
-    function saveInstagramCache(
+    const unique = [
+      ...new Map(
         posts
-    ) {
-        try {
-            localStorage.setItem(
-                INSTAGRAM_CACHE_KEY,
-                JSON.stringify({
-                    savedAt:
-                        Date.now(),
+          .filter(post => post?.id)
+          .map(post => [post.id, post])
+      ).values()
+    ];
 
-                    posts:
-                        posts
-                })
-            );
+    return res.status(200).json({
+      data: unique.map(sanitize),
+      has_more: hasMore
+    });
 
-        } catch (error) {
-        }
-    }
+  } catch (error) {
+    console.error('Instagram request error:', error.name);
 
-    function loadInstagramCache() {
-        try {
-            const raw =
-                localStorage.getItem(
-                    INSTAGRAM_CACHE_KEY
-                );
+    res.setHeader('Cache-Control', 'no-store');
 
-            if (!raw) {
-                return false;
-            }
-
-            const cached =
-                JSON.parse(raw);
-
-            if (
-                !cached ||
-                !Array.isArray(
-                    cached.posts
-                ) ||
-                !cached.posts.length
-            ) {
-                return false;
-            }
-
-            allPosts =
-                normalizeAndSort(
-                    cached.posts
-                );
-
-            renderVisible();
-
-            return true;
-
-        } catch (error) {
-            return false;
-        }
-    }
-
-    async function fetchInstagramPosts() {
-        const response =
-            await fetch(
-                INSTAGRAM_API_URL,
-                {
-                    method:
-                        'GET',
-
-                    headers: {
-                        Accept:
-                            'application/json'
-                    },
-
-                    cache:
-                        'no-store'
-                }
-            );
-
-        const result =
-            await response
-                .json()
-                .catch(
-                    function () {
-                        return {};
-                    }
-                );
-
-        if (
-            !response.ok
-        ) {
-            throw new Error(
-                result.error ||
-                'Instagram feed request failed'
-            );
-        }
-
-        return Array.isArray(
-            result.data
-        )
-            ? result.data
-            : [];
-    }
-
-    async function refreshFeed() {
-        try {
-            const posts =
-                await fetchInstagramPosts();
-
-            allPosts =
-                normalizeAndSort(
-                    posts
-                );
-
-            if (
-                allPosts.length
-            ) {
-                saveInstagramCache(
-                    allPosts
-                );
-            }
-
-            renderVisible();
-
-        } catch (error) {
-            console.error(
-                'Instagram feed error:',
-                error
-            );
-
-            if (
-                !allPosts.length
-            ) {
-                feed.innerHTML = `
-                    <div class="ig-feed-status">
-
-                        Instagram feed is temporarily unavailable.
-
-                        <br><br>
-
-                        <a
-                            href="https://www.instagram.com/thefrystreet/"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style="color:#f5ca18;text-decoration:underline;"
-                        >
-                            View Instagram
-                        </a>
-
-                    </div>
-                `;
-
-                loadMoreRow.style.display =
-                    'none';
-            }
-        }
-    }
-
-    feed.addEventListener(
-        'pointerdown',
-        function () {
-            feed.classList.add(
-                'is-user-paused'
-            );
-        }
-    );
-
-    window.addEventListener(
-        'pointerup',
-        function () {
-            const hoveringCard =
-                document.querySelector(
-                    '#home-instagram-feed .ig-feed-card:hover'
-                );
-
-            if (
-                !hoveringCard
-            ) {
-                feed.classList.remove(
-                    'is-user-paused'
-                );
-            }
-        }
-    );
-
-    feed.addEventListener(
-        'mouseleave',
-        function () {
-            feed.classList.remove(
-                'is-user-paused'
-            );
-        }
-    );
-
-    feed.addEventListener(
-        'touchstart',
-        function () {
-            feed.classList.add(
-                'is-user-paused'
-            );
-        },
-        {
-            passive: true
-        }
-    );
-
-    feed.addEventListener(
-        'touchend',
-        function () {
-            feed.classList.remove(
-                'is-user-paused'
-            );
-        },
-        {
-            passive: true
-        }
-    );
-
-    const hadCachedInstagramFeed =
-        loadInstagramCache();
-
-    if (
-        !hadCachedInstagramFeed
-    ) {
-        feed.innerHTML = `
-            <div class="ig-feed-status">
-                Loading Instagram…
-            </div>
-        `;
-    }
-
-    refreshFeed();
-
-    window.setInterval(
-        function () {
-            if (
-                !document.hidden
-            ) {
-                refreshFeed();
-            }
-        },
-        AUTO_REFRESH_MS
-    );
-
-})();
+    return res.status(502).json({
+      error: 'Instagram temporarily unavailable.'
+    });
+  }
+};
