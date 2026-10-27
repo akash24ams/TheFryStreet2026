@@ -1,0 +1,10 @@
+
+{
+  "name": "the-frystreet-instagram-backup",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@vercel/blob": "^2.0.0"
+  }
+}
+
