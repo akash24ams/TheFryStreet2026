@@ -1,20 +1,14 @@
+
 {
-  "rewrites": [
+  "functions": {
+    "api/instagram-sync.js": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
     {
-      "source": "/",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/menu",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/about-us",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/contact",
-      "destination": "/index.html"
+      "path": "/api/instagram-sync",
+      "schedule": "0 3 * * *"
     }
   ]
 }
