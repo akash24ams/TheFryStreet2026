@@ -6205,7 +6205,7 @@
                 <div class="glow"></div>
                 <div class="circle-wrap hero-food-soft-shake">
                     <div class="circle-inner">
-                        <img class="food-photo" src="/image/companyImg.webp" alt="Loaded Fries">
+                        <img class="food-photo" src="image/companyImg.webp" alt="Loaded Fries">
                     </div>
                 </div>
              
@@ -6229,7 +6229,7 @@
 
                 <a href="https://www.instagram.com/thefrystreet/" target="_blank" rel="noopener" class="instagram-name">
                     @thefrystreet
-                    <img src="/image/instaverify.webp" alt="Verified" class="instagram-verified-img">
+                    <img src="image/instaverify.webp" alt="Verified" class="instagram-verified-img">
                 </a>
 
             </div>
@@ -7804,37 +7804,23 @@
 
             if (!feed || !loadMoreRow || !loadMoreBtn) return;
 
-            const INSTAGRAM_ACCESS_TOKEN = 'IGAAkSSNzNbnFBZAFowcVBMbUJFanI0YzNvYk9XV1JPZAjNSYnMzS3g3VURzd2VsWkMzUEJEV1pacm5sOVctalh5cEV2bzJpdF9wZATF0b3NrZAW1sSDFHNlNDRjNMdk1ISS1kQ1hiN3c0bTdmZAmd1RS1FZAno2SGdUcUFnRFRDYzNFbwZDZD';
-
-            const INITIAL_COUNT = 100;
-            const VIEW_MORE_COUNT = 100;
+            const INITIAL_COUNT = 30;
+            const VIEW_MORE_COUNT = 30;
             const AUTO_REFRESH_MS = 10 * 60 * 1000;
-
+            const INSTAGRAM_CACHE_KEY = 'theFryStreetInstagramFeedV6';
+            const INSTAGRAM_CACHE_MAX_AGE = 5 * 60 * 1000;
+            const firstPageUrl = '/api/instagram';
             let allPosts = [];
             let visibleCount = INITIAL_COUNT;
             let loading = false;
-
-            const INSTAGRAM_CACHE_KEY = 'theFryStreetInstagramFeedV2';
-            const INSTAGRAM_CACHE_MAX_AGE = 6 * 60 * 60 * 1000; // 6 hours
-
-            const fields = [
-                'id',
-                'caption',
-                'media_type',
-                'media_product_type',
-                'media_url',
-                'permalink',
-                'thumbnail_url',
-                'timestamp',
-                'username',
-                'children{id,media_type,media_url,thumbnail_url}'
-            ].join(',');
-
-            const firstPageUrl =
-                'https://graph.instagram.com/me/media'
-                + '?fields=' + encodeURIComponent(fields)
-                + '&limit=30'
-                + '&access_token=' + encodeURIComponent(INSTAGRAM_ACCESS_TOKEN);
+            let refreshing = false;
+            // Remove older caches containing stale Instagram CDN links.
+            try {
+                localStorage.removeItem('theFryStreetInstagramFeedV2');
+                localStorage.removeItem('theFryStreetInstagramFeedV3');
+                localStorage.removeItem('theFryStreetInstagramFeedV4');
+                localStorage.removeItem('theFryStreetInstagramFeedV5');
+            } catch (_) {}
 
             function esc(value) {
                 return String(value || '')
@@ -7860,32 +7846,19 @@
 
                 const type = String(post.media_type || '').toUpperCase();
 
-                if (type === 'CAROUSEL_ALBUM') {
-                    const children = post.children && Array.isArray(post.children.data)
-                        ? post.children.data
-                        : [];
+                const preview = previewMedia(post);
+                return preview.thumbnail_url || preview.media_url || '';
+            }
 
-                    const first = children[0] || {};
-
-                    return (
-                        first.thumbnail_url ||
-                        first.media_url ||
-                        post.thumbnail_url ||
-                        post.media_url ||
-                        ''
-                    );
-                }
-
-                return post.thumbnail_url || post.media_url || '';
+            function previewMedia(post) {
+                if (String(post.media_type).toUpperCase() !== 'CAROUSEL_ALBUM') return post;
+                const children = post.children && Array.isArray(post.children.data) ? post.children.data : [];
+                // Prefer the album cover, then the first child with usable media.
+                if (post.media_url || post.thumbnail_url) return { ...post, media_type: 'IMAGE' };
+                return children.find(function (child) { return child.media_url || child.thumbnail_url; }) || post;
             }
 
             function isRenderable(post) {
-                const type = String((post && post.media_type) || '').toUpperCase();
-
-                if (type === 'VIDEO') {
-                    return !!(post && post.id && (post.thumbnail_url || post.media_url));
-                }
-
                 return !!(post && post.id && mediaPreview(post));
             }
 
@@ -7907,23 +7880,24 @@
                 const url = esc(post.permalink || 'https://www.instagram.com/thefrystreet/');
                 const caption = esc(post.caption || 'The Fry Street Instagram post');
 
-                if (type === 'VIDEO') {
-                    const videoSrc = esc(post.media_url || '');
-                    const poster = esc(post.thumbnail_url || '');
+                const preview = previewMedia(post);
+                if (String(preview.media_type).toUpperCase() === 'VIDEO') {
+                    const videoSrc = esc(preview.media_url || '');
+                    const poster = esc(preview.thumbnail_url || '');
 
                     if (videoSrc) {
                         return '<a class="ig-feed-card" href="' + url + '" target="_blank" rel="noopener" aria-label="' + caption + '">'
                             + '<video src="' + videoSrc + '"'
                             + (poster ? ' poster="' + poster + '"' : '')
                             + ' muted loop playsinline preload="none"></video>'
-                            + '<span class="ig-feed-type">' + (productType === 'REELS' ? 'REEL' : 'VIDEO') + '</span>'
+                            + '<span class="ig-feed-type">' + (type === 'CAROUSEL_ALBUM' ? 'ALBUM' : productType === 'REELS' ? 'REEL' : 'VIDEO') + '</span>'
                             + '</a>';
                     }
 
                     if (poster) {
                         return '<a class="ig-feed-card" href="' + url + '" target="_blank" rel="noopener" aria-label="' + caption + '">'
                             + '<img src="' + poster + '" alt="' + caption + '" loading="lazy" decoding="async">'
-                            + '<span class="ig-feed-type">VIDEO</span>'
+                            + '<span class="ig-feed-type">' + (type === 'CAROUSEL_ALBUM' ? 'ALBUM' : 'VIDEO') + '</span>'
                             + '</a>';
                     }
 
@@ -7963,13 +7937,11 @@
             }
 
             async function fetchJson(url) {
-                const response = await fetch(url, { cache: 'no-store' });
+                const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(25000) });
                 const result = await response.json().catch(function () { return {}; });
 
                 if (!response.ok || result.error) {
-                    const message = result && result.error && result.error.message
-                        ? result.error.message
-                        : ('Instagram /me/media request failed: ' + response.status);
+                    const message = typeof result.error === 'string' ? result.error : (result.error?.message || ('Instagram API returned HTTP ' + response.status));
                     throw new Error(message);
                 }
 
@@ -7997,7 +7969,12 @@
                         return false;
                     }
 
-                    // Show cached cards immediately, even if slightly old.
+                    if (!Number.isFinite(cached.savedAt) || Date.now() < cached.savedAt ||
+                        Date.now() - cached.savedAt > INSTAGRAM_CACHE_MAX_AGE) {
+                        localStorage.removeItem(INSTAGRAM_CACHE_KEY);
+                        return false;
+                    }
+                    // Only render recent cached media URLs.
                     allPosts = normalizeAndSort(cached.posts);
                     renderVisible();
 
@@ -8020,6 +7997,8 @@
             }
 
             async function refreshFeed() {
+                if (refreshing) return;
+                refreshing = true;
                 try {
                     const oldVisibleCount = visibleCount;
 
@@ -8032,17 +8011,30 @@
 
                     renderVisible();
                 } catch (err) {
-                    console.error('Instagram /me/media feed error:', err);
-
-
-                    // Never replace already-visible cached/current cards with an error.
+                    console.warn('Instagram feed error:', err);
                     if (!allPosts.length) {
-                        // Keep the initial loading state instead of flashing a reconnect error.
-                        feed.innerHTML = '<div class="ig-feed-status">Loading Instagram…</div>';
+                        feed.innerHTML = '<div class="ig-feed-status">Instagram feed could not load: ' + esc(err.message || 'Unknown error') + '. <a href="https://www.instagram.com/thefrystreet/" target="_blank" rel="noopener noreferrer">View on Instagram</a></div>';
                         loadMoreRow.style.display = 'none';
                     }
+                } finally {
+                    refreshing = false;
                 }
             }
+
+            // Failed remote media keeps a usable link instead of a broken image.
+            feed.addEventListener('error', function (event) {
+                const media = event.target;
+                if (!media.matches || !media.matches('img, video')) return;
+                const card = media.closest('.ig-feed-card');
+                if (!card) return;
+                if (media.tagName === 'VIDEO') media.pause();
+                media.remove();
+                const fallback = document.createElement('span');
+                fallback.textContent = 'View on Instagram';
+                fallback.style.cssText = 'display:flex;align-items:center;justify-content:center;width:100%;height:100%;min-height:120px;background:#191919;color:#fff;padding:16px;box-sizing:border-box';
+                card.prepend(fallback);
+                try { localStorage.removeItem(INSTAGRAM_CACHE_KEY); } catch (_) {}
+            }, true);
 
             loadMoreBtn.addEventListener('click', function () {
                 if (loading) return;
@@ -8070,7 +8062,7 @@
 
             // Refresh in the background without clearing the visible cards.
             refreshFeed();
-            window.setInterval(refreshFeed, AUTO_REFRESH_MS);
+            window.setInterval(function () { if (!document.hidden) refreshFeed(); }, AUTO_REFRESH_MS);
 
             window.setTimeout(function () {
                 const status = feed.querySelector('.ig-feed-status');
