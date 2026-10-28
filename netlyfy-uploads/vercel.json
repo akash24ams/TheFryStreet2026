@@ -3,9 +3,16 @@
   "functions": {
     "api/instagram-sync.js": {
       "maxDuration": 60
+    },
+    "api/instagram-refresh.js": {
+      "maxDuration": 30
     }
   },
   "crons": [
+    {
+      "path": "/api/instagram-refresh",
+      "schedule": "0 2 * * *"
+    },
     {
       "path": "/api/instagram-sync",
       "schedule": "0 3 * * *"
