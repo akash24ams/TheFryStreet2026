@@ -5760,6 +5760,24 @@
     .footer-bottom .fs-bottom-right { font-size: 16px; }
     .footer-bottom .designer-name img { width: 165px !important; height: 30px !important; }
 }
+
+/* Instant visual preview for Instagram reels: cover image until MP4 frame is ready. */
+#home-instagram-feed .ig-feed-card .ig-video-cover {
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 1 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+}
+#home-instagram-feed .ig-feed-card video {
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 2 !important;
+    opacity: 0;
+    transition: opacity .18s ease;
+}
+#home-instagram-feed .ig-feed-card video.ig-video-ready { opacity: 1; }
 </style>
 </head>
 
@@ -7909,7 +7927,9 @@
 
                     if (videoSrc) {
                         return '<a class="ig-feed-card" href="' + url + '" target="_blank" rel="noopener" aria-label="' + caption + '">'
-                            + '<video src="' + videoSrc + '"'
+                            // Show a real image immediately; video loading never leaves the card black.
+                            + (poster ? '<img class="ig-video-cover" src="' + poster + '" alt="' + caption + '" loading="eager" decoding="async" fetchpriority="auto">' : '')
+                            + '<video data-src="' + videoSrc + '"'
                             + (poster ? ' poster="' + poster + '"' : '')
                             + ' muted loop playsinline preload="none"></video>'
                             + '<span class="ig-feed-type">' + (productType === 'REELS' ? 'REEL' : 'VIDEO') + '</span>'
@@ -8196,11 +8216,20 @@
                 entries.forEach(function (entry) {
                     const video = entry.target;
                     if (entry.isIntersecting && !document.hidden) {
+                        // Start fetching MP4 only near the viewport; avoid downloading
+                        // all duplicated marquee videos on page load.
+                        if (!video.src && video.dataset.src) {
+                            video.src = video.dataset.src;
+                            video.preload = 'metadata';
+                            video.load();
+                        }
                         const result = video.play();
                         if (result) result.catch(function () {});
-                    } else video.pause();
+                    } else {
+                        video.pause();
+                    }
                 });
-            }, { threshold: 0.2 });
+            }, { rootMargin: '250px', threshold: 0.01 });
             function measureMarquee() {
                 const track = feed.querySelector('.ig-marquee-track');
                 if (track !== marqueeTrack) {
@@ -8210,7 +8239,18 @@
                 cycleWidth = track && track.children.length > 1
                     ? track.children[track.children.length / 2].offsetLeft - track.children[0].offsetLeft : 0;
                 videoObserver.disconnect();
-                feed.querySelectorAll('video').forEach(function (video) { videoObserver.observe(video); });
+                feed.querySelectorAll('video').forEach(function (video) {
+                    if (!video.dataset.coverReadyBound) {
+                        video.dataset.coverReadyBound = '1';
+                        const showVideo = function () {
+                            // Hide the cover only when a real frame is available.
+                            if (video.readyState >= 2) video.classList.add('ig-video-ready');
+                        };
+                        video.addEventListener('loadeddata', showVideo);
+                        video.addEventListener('playing', showVideo);
+                    }
+                    videoObserver.observe(video);
+                });
             }
             new ResizeObserver(measureMarquee).observe(feed);
             new MutationObserver(measureMarquee).observe(feed, { childList: true });
