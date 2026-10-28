@@ -1,5 +1,6 @@
 
 const { put, list } = require('@vercel/blob');
+const { getInstagramToken } = require('./instagram-token');
 
 const API_URL = 'https://graph.instagram.com/me/media';
 
@@ -137,12 +138,13 @@ async function mirror(url, id, slot, priorUrl) {
 
 // Main Instagram backup function
 async function syncInstagram() {
-  if (
-    !process.env.INSTAGRAM_ACCESS_TOKEN ||
-    !process.env.BLOB_READ_WRITE_TOKEN
-  ) {
-    throw new Error('Missing server environment variables');
-  }
+  
+if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  throw new Error('Blob storage token missing');
+}
+
+const instagramToken = await getInstagramToken();
+
 
   const previous = await readSnapshot().catch(e => {
     console.error(
@@ -157,7 +159,7 @@ async function syncInstagram() {
   );
 
   let result = await requestInstagram(
-    process.env.INSTAGRAM_ACCESS_TOKEN,
+    instagramToken,
     FIELDS
   );
 
@@ -166,7 +168,7 @@ async function syncInstagram() {
     result.json?.error?.code === 100
   ) {
     result = await requestInstagram(
-      process.env.INSTAGRAM_ACCESS_TOKEN,
+      instagramToken,
       BASIC_FIELDS
     );
   }
