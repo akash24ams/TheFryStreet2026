@@ -7931,7 +7931,7 @@
                             + (poster ? '<img class="ig-video-cover" src="' + poster + '" alt="' + caption + '" loading="eager" decoding="async" fetchpriority="auto">' : '')
                             + '<video data-src="' + videoSrc + '"'
                             + (poster ? ' poster="' + poster + '"' : '')
-                            + ' muted loop playsinline preload="none"></video>'
+                            + ' autoplay muted loop playsinline preload="none"></video>'
                             + '<span class="ig-feed-type">' + (productType === 'REELS' ? 'REEL' : 'VIDEO') + '</span>'
                             + '</a>';
                     }
@@ -8028,18 +8028,21 @@
                 const result = await fetchJson(firstPageUrl);
                 const fetched = Array.isArray(result.data) ? result.data : [];
 
-                allPosts = normalizeAndSort(fetched);
-
-                if (allPosts.length) {
-                    saveInstagramCache(allPosts);
-                }
+                const nextPosts = normalizeAndSort(fetched);
+                const oldSignature = allPosts.map(p => [p.id, p.media_url, p.thumbnail_url].join('|')).join('~');
+                const newSignature = nextPosts.map(p => [p.id, p.media_url, p.thumbnail_url].join('|')).join('~');
+                const changed = oldSignature !== newSignature;
+                allPosts = nextPosts;
+                if (allPosts.length && changed) saveInstagramCache(allPosts);
+                return changed;
             }
 
             async function refreshFeed() {
                 try {
                     const oldVisibleCount = visibleCount;
 
-                    await fetchAllMediaPages();
+                    const changed = await fetchAllMediaPages();
+                    if (!changed && feed.querySelector('.ig-feed-card')) return;
 
                     visibleCount = Math.min(
                         Math.max(oldVisibleCount, INITIAL_COUNT),
@@ -8223,6 +8226,9 @@
                             video.preload = 'metadata';
                             video.load();
                         }
+                        video.muted = true;
+                        video.playsInline = true;
+                        if (video.readyState >= 2) video.classList.add('ig-video-ready');
                         const result = video.play();
                         if (result) result.catch(function () {});
                     } else {
@@ -8248,6 +8254,13 @@
                         };
                         video.addEventListener('loadeddata', showVideo);
                         video.addEventListener('playing', showVideo);
+                        video.addEventListener('canplay', function () {
+                            showVideo();
+                            if (!document.hidden && video.isConnected) {
+                                const result = video.play();
+                                if (result) result.catch(function () {});
+                            }
+                        });
                     }
                     videoObserver.observe(video);
                 });
