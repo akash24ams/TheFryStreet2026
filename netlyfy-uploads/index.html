@@ -7832,7 +7832,7 @@
             let visibleCount = INITIAL_COUNT;
             let loading = false;
 
-            const INSTAGRAM_CACHE_KEY = 'theFryStreetInstagramFeedV2';
+            const INSTAGRAM_CACHE_KEY = 'theFryStreetInstagramFeedBlobV3';
             const INSTAGRAM_CACHE_MAX_AGE = 6 * 60 * 60 * 1000; // 6 hours
 
             const fields = [
@@ -7848,7 +7848,7 @@
                 'children{id,media_type,media_url,thumbnail_url}'
             ].join(',');
 
-            const firstPageUrl = '/api/feed';
+           const firstPageUrl = '/api/feed?backup=1';
 
             function esc(value) {
                 return String(value || '')
