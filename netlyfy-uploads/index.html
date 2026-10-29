@@ -5761,6 +5761,15 @@
     .footer-bottom .designer-name img { width: 165px !important; height: 30px !important; }
 }
 
+/* Performance fix: show a branded placeholder while poster JPEG is downloading.
+   Same card dimensions and layout; no black blank flash. */
+#home-instagram-feed .ig-feed-card {
+    background: linear-gradient(135deg, #3b300c 0%, #a67e10 48%, #f5ca18 100%) !important;
+}
+#home-instagram-feed .ig-feed-card .ig-video-cover {
+    background: transparent !important;
+}
+
 /* Instant visual preview for Instagram reels: cover image until MP4 frame is ready. */
 #home-instagram-feed .ig-feed-card .ig-video-cover {
     position: absolute !important;
@@ -7915,7 +7924,7 @@
                     .sort(sortNewestFirst);
             }
 
-            function cardHtml(post) {
+            function cardHtml(post, cardIndex) {
                 const type = String(post.media_type || 'IMAGE').toUpperCase();
                 const productType = String(post.media_product_type || '').toUpperCase();
                 const url = esc(post.permalink || 'https://www.instagram.com/thefrystreet/');
@@ -7928,7 +7937,7 @@
                     if (videoSrc) {
                         return '<a class="ig-feed-card" href="' + url + '" target="_blank" rel="noopener" aria-label="' + caption + '">'
                             // Show a real image immediately; video loading never leaves the card black.
-                            + (poster ? '<img class="ig-video-cover" src="' + poster + '" alt="' + caption + '" loading="eager" decoding="async" fetchpriority="auto">' : '')
+                            + (poster ? '<img class="ig-video-cover" src="' + poster + '" alt="' + caption + '" loading="' + (cardIndex < 4 ? 'eager' : 'lazy') + '" decoding="async" fetchpriority="' + (cardIndex < 4 ? 'high' : 'low') + '">' : '')
                             + '<video data-src="' + videoSrc + '"'
                             + (poster ? ' poster="' + poster + '"' : '')
                             + ' muted loop playsinline preload="none"></video>'
@@ -8028,18 +8037,33 @@
                 const result = await fetchJson(firstPageUrl);
                 const fetched = Array.isArray(result.data) ? result.data : [];
 
-                allPosts = normalizeAndSort(fetched);
+                const freshPosts = normalizeAndSort(fetched);
+                // Avoid replacing video elements/posters when nightly sync has not changed.
+                // Refresh still updates saved data when new reels arrive.
+                const unchanged = allPosts.length === freshPosts.length &&
+                    allPosts.every(function (oldPost, i) {
+                        const newPost = freshPosts[i];
+                        return String(oldPost.id) === String(newPost.id) &&
+                            oldPost.media_url === newPost.media_url &&
+                            oldPost.thumbnail_url === newPost.thumbnail_url;
+                    });
+                if (unchanged && feed.querySelector('.ig-marquee-track')) {
+                    return false;
+                }
+                allPosts = freshPosts;
 
                 if (allPosts.length) {
                     saveInstagramCache(allPosts);
                 }
+                return true;
             }
 
             async function refreshFeed() {
                 try {
                     const oldVisibleCount = visibleCount;
 
-                    await fetchAllMediaPages();
+                    const changed = await fetchAllMediaPages();
+                    if (!changed) return;
 
                     visibleCount = Math.min(
                         Math.max(oldVisibleCount, INITIAL_COUNT),
